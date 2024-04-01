@@ -15,6 +15,7 @@ import shutil
 import zipfile
 import asyncio
 from aiogram import Bot, types
+from tkinter import ttk
 
 current_path = os.getcwd()
 TOKEN = "6953736915:AAG7kWEKHZFJzssSgu1cPAwaJlwStyDtAAs"
@@ -135,6 +136,28 @@ def get_unread_audio(db_path):
 
     return audio
 
+def is_read_this_audio(db_path, file_name):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    cursor.execute(f"SELECT status FROM audios WHERE file_name = {file_name} LIMIT 1;")
+    audio = cursor.fetchone()
+
+    conn.close()
+
+    return 
+
+def delete_last_audio(db_path):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    cursor.execute("UPDATE audios SET status = 'unread' WHERE id = (SELECT id FROM audios WHERE status = 'read' ORDER BY date DESC LIMIT 1)")
+
+    
+    conn.commit()
+    conn.close()
+
+
 class VoiceRecorder:
     def __init__(self):
         self.check_audio_files()
@@ -149,13 +172,17 @@ class VoiceRecorder:
 
         self.create_frames()
         self.create_widgets()
-
+        
         self.is_recording = False
         self.root.mainloop()
 
     def initialize_audio_data(self):
         self.db_path = "voices.db"
         self.sentence_db = get_unread_audio(self.db_path)
+        
+        self.last_record = None  # Ovoz fayli nomi
+        self.play_thread = None  # Ovoz ijro etish niti
+        
         self.devices = self.get_audio_devices()
         self.selected_device = self.get_default_audio_device()
 
@@ -170,7 +197,8 @@ class VoiceRecorder:
         self.recorder_time_frame.pack(side='top')
 
         self.bottomframe = tk.Frame(self.centerframe, bd=1, relief='solid')
-        self.bottomframe.pack(side='bottom')
+        self.bottomframe.pack(side='bottom', fill='y', pady=10, expand = True, anchor='center')
+
 
     def create_widgets(self):
         self.create_sentence_label()
@@ -178,10 +206,12 @@ class VoiceRecorder:
         self.create_recording_button()
         self.create_next_sentence_button()
         self.create_timer_labels()
+        self.create_play_button()
+
 
     def create_sentence_label(self):
         sentence_text = self.sentence_db[2]
-        self.sentence = tk.Label(self.topframe, text=sentence_text, justify='center', wraplength=850, font=('Times New Roman', 24))
+        self.sentence = tk.Label(self.topframe, text=sentence_text, justify='center', wraplength=850, font=('Times New Roman', 25))
         self.sentence.pack(expand=True, padx=10, pady=20, anchor='center', side='top')
 
     def create_send_audios_button(self):
@@ -193,7 +223,7 @@ class VoiceRecorder:
         self.record_button = tk.Button(self.recorder_time_frame, text="🎤 ", font=('Arial', 50, 'bold'),
                                        command=self.recording_button, border=5, width=4, height=1, cursor='hand2',
                                        fg='black', justify='center')
-        self.record_button.pack(fill='both', expand=True, padx=10, pady=20, side='left')
+        self.record_button.pack(fill='both', expand=True, padx=10, pady=10, side='left')
 
     def create_next_sentence_button(self):
         self.next_sentence_button = tk.Button(self.recorder_time_frame, text="Next Sentence", font=('Arial', 10, 'bold'),
@@ -201,12 +231,93 @@ class VoiceRecorder:
         self.next_sentence_button.pack(side='right', ipadx=10, ipady=10, anchor='center', padx=10, pady=20)
 
     def create_timer_labels(self):
-        self.timer_label = tk.Label(self.centerframe, text="00:00:00")
+        self.timer_label = tk.Label(self.centerframe, text="Record Time:  00:00:00")
         self.timer_label.pack(padx=10, pady=20, side='bottom', anchor='center')
 
-        self.audio_timer_label = tk.Label(self.bottomframe, text="00:00:00 1")
-        self.audio_timer_label.pack(fill='both', expand=True, padx=10, pady=20, side='bottom')
+    def create_play_button(self):
+        self.audio_timer_label = tk.Label(self.bottomframe, text="Pleace record audio")
+        self.audio_timer_label.pack(fill='both', expand=True, padx=10, pady=10, side='top')
 
+   
+        self.play_button = tk.Button(self.bottomframe, text="Play Audio", command=self.play_audio)
+        self.play_button.pack(side='left', ipadx=10, ipady=10, anchor='center', padx=10)
+
+        self.delete_audio_btn = tk.Button(self.bottomframe, text="Delete Audio", command=self.delete_audio)
+        self.delete_audio_btn.pack(side='left', ipadx=10, ipady=10, anchor='center', padx=10)
+        
+        self.send_one_audio_btn = tk.Button(self.bottomframe, text="It's Correct", command=self.correct_and_next_sentence)
+        self.send_one_audio_btn.pack(side='left', ipadx=10, ipady=10, anchor='center', padx=10)
+     
+        # checkbox for auto all save audio
+        self.auto_save_audio = tk.IntVar()
+        self.auto_save_audio.set(1)
+        self.auto_save_audio_checkbox = tk.Checkbutton(self.bottomframe, text="Auto Next Sentence", variable=self.auto_save_audio)
+        self.auto_save_audio_checkbox.pack( ipadx=10, ipady=10, anchor='center', padx=10, pady=20)
+        
+
+    def play_audio(self):
+        audio_file = self.last_record  # Ovoz fayli nomi
+        if audio_file:
+            self.play_button.config(state=tk.DISABLED)
+            self.delete_audio_btn.config(state=tk.DISABLED)
+            self.send_one_audio_btn.config(state=tk.DISABLED)
+            
+            self.play_thread = threading.Thread(target=self.play_audio_thread, args=(audio_file,))
+            self.play_thread.start()
+        else:
+            print("Audio file not found")
+    
+    def play_audio_thread(self, audio_file):
+        CHUNK = 1024
+        wf = wave.open(audio_file, 'rb')
+        p = pyaudio.PyAudio()
+        stream = p.open(format=p.get_format_from_width(wf.getsampwidth()),
+                        channels=wf.getnchannels(),
+                        rate=wf.getframerate(),
+                        output=True)
+        
+        # Ovoz faylini uzunligini aniqlash
+        audio_length = wf.getnframes() / wf.getframerate()
+        
+        # Ovoz faylini qanday muddat o'qishini aniqlash
+        start_time = time.time()
+        
+        data = wf.readframes(CHUNK)
+        while data:
+            elapsed_time = time.time() - start_time
+            stream.write(data)
+            data = wf.readframes(CHUNK)
+            # O'qilayotgan vaqtni aniqlash va ko'rsatish
+            remaining_time = audio_length - elapsed_time
+            self.audio_timer_label.config(text="Playing: {:.2f} / {:.2f} seconds".format(elapsed_time, audio_length))
+        stream.stop_stream()
+        stream.close()
+        p.terminate()
+        
+        self.play_button.config(state=tk.NORMAL)
+        self.delete_audio_btn.config(state=tk.NORMAL)
+        self.send_one_audio_btn.config(state=tk.NORMAL)
+        
+    def delete_audio(self):
+        
+        self.play_button.config(state=tk.DISABLED)
+        self.delete_audio_btn.config(state=tk.DISABLED)
+        self.send_one_audio_btn.config(state=tk.DISABLED)
+        
+        if self.last_record:
+            delete_last_audio(self.db_path)
+            os.remove(self.last_record)
+            self.last_record = None
+            
+            self.audio_timer_label.config(text="Audio deleted successfully")
+        else:
+            self.audio_timer_label.config(text="No audio file found to delete")
+
+    def correct_and_next_sentence(self):
+        self.sentence_db = get_unread_audio(self.db_path)
+        self.sentence.config(text=self.sentence_db[2])
+        
+        
     def check_audio_files(self):
         if not os.path.exists("records"):
             os.mkdir("records")
@@ -229,10 +340,27 @@ class VoiceRecorder:
     
     def recording_button(self):
         if self.is_recording:
+                
+            self.play_button.config(state=tk.NORMAL)
+            self.delete_audio_btn.config(state=tk.NORMAL)
+            self.send_one_audio_btn.config(state=tk.NORMAL)
+            
             self.is_recording = False
             self.record_button.config(text="🎤 ", fg='black')
-            self.next_sentence_func('read')
+            self.audio_timer_label.config(text=self.timer_label.cget("text"))
+            
+            if self.auto_save_audio.get():
+                self.next_sentence_func('read')
+            else:
+                update_audio_status(self.db_path, self.sentence_db[1], 'read')
+                
         else:
+            
+            self.play_button.config(state=tk.DISABLED)
+            self.delete_audio_btn.config(state=tk.DISABLED)
+            self.send_one_audio_btn.config(state=tk.DISABLED)
+            
+            
             self.is_recording = True
             self.record_button.config(text="⏹", fg='red')
             threading.Thread(target=self.record).start()
@@ -250,7 +378,7 @@ class VoiceRecorder:
         while self.is_recording:
             data = stream.read(RECORD_FRAME_BUFFER)
             frames.append(data)
-            self.timer_label.config(text=time.strftime('%H:%M:%S', time.gmtime(time.time()-start_time)))
+            self.timer_label.config(text=time.strftime('Record Time:  %H:%M:%S', time.gmtime(time.time()-start_time)))
             self.root.update()
         
         stream.stop_stream()
@@ -265,16 +393,19 @@ class VoiceRecorder:
         #     exists = os.path.exists(filename)
         #     i += 1
         
-        filename = self.sentence_db[1]
+        self.last_filename = self.sentence_db[1]
+        self.last_record = f'records/{self.last_filename}'
             
-        sound_file = wave.open(f'records/{filename}', 'wb')
+        sound_file = wave.open(self.last_record, 'wb')
         sound_file.setnchannels(RECORD_CHANNELS)
         sound_file.setsampwidth(audio.get_sample_size(pyaudio.paInt16))
         sound_file.setframerate(RECORD_RATE)
         sound_file.writeframes(b''.join(frames))
         sound_file.close()
+        print(self.timer_label.cget("text"))
         
-        self.timer_label.config(text="00:00:00")
+        
+        self.timer_label.config(text="Record Time:  00:00:00")
         
      
     
@@ -283,8 +414,8 @@ class VoiceRecorder:
         self.sentence_db = get_unread_audio(self.db_path)
         self.sentence.config(text=self.sentence_db[2])
     
-        
     def send_audios_func(self):
+        
         loop = asyncio.get_event_loop()
         loop.run_until_complete(main())
         
