@@ -163,3 +163,4 @@ records/
 *.db
 *.sqlite3
 *.zip
+voices*
