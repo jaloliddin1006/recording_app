@@ -15,7 +15,7 @@ import sqlite3
 from datetime import datetime, timedelta
 
 # Ma'lumotlar bazasi faylini yo'l
-db_path = "voices2.db"
+db_path = "voices.db"
 
 def create_table():
     conn = sqlite3.connect(db_path)
@@ -25,10 +25,11 @@ def create_table():
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS audios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            file_name VARCHAR,
+            sentence_id VARCHAR,
             sentence VARCHAR,
+            file_name VARCHAR NULL,
             status VARCHAR DEFAULT 'unread',
-            date DATETIME DEFAULT CURRENT_TIMESTAMP
+            time DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
 
@@ -76,7 +77,55 @@ def get_unread_audio():
 
     return audio
 
-# Ma'lumotlarni olish
+
+def get_all_read_audio():
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM audios WHERE status = 'read';")
+    audios = cursor.fetchall()
+
+    # delete all read audios
+    cursor.execute("DELETE FROM audios WHERE status = 'read';")
+    conn.commit()
+    
+
+    conn.close()
+
+
+    return audios
+
+def create_new_sql_db_and_insert(path, audios):
+    conn = sqlite3.connect(path)
+    cursor = conn.cursor()
+
+    # Jadvalni yaratish
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS audios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sentence_id VARCHAR,
+            sentence VARCHAR,
+            file_name VARCHAR,
+            status VARCHAR ,
+            time DATETIME
+        )
+    ''')
+
+    for audio in audios:
+        cursor.execute('''
+            INSERT INTO audios (sentence_id, sentence, file_name, status, time) VALUES (?, ?, ?, ?, ?)
+        ''', (audio[1], audio[2], audio[3], audio[4], audio[5]))
+
+    conn.commit()
+    conn.close()
+
+    print("Ma'lumotlar bazasi yaratildi va ma'lumotlar qo'shildi.")
+    # Ma'lumotlarni olish
+
+
+# audios = get_all_read_audio()
+# create_new_sql_db_and_insert("new_database.db", audios)
+
 
 
 # # Jadvalni yaratish
@@ -116,12 +165,12 @@ cursor = conn.cursor()
 
 
 print(len(df))
-for i in range(0, 500):
-    # print(df['wavfile'][i], df['text'][i])
+for i in range(0, len(df)):
+    # print(df['sentence_id'][i],  df['sentence'][i])
     # insert_audio(df['wavfile'][i], df['text'][i])
     cursor.execute('''
-    INSERT INTO audios (file_name, sentence) VALUES (?, ?)
-''', (df['wavfile'][i],  df['text'][i]))
+    INSERT INTO audios (sentence_id, sentence) VALUES (?, ?)
+''', (df['sentence_id'][i],  df['sentence'][i]))
 
 
 conn.commit()

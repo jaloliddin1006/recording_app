@@ -37,6 +37,56 @@ RECORD_FRAME_BUFFER = 1024
 RECORD_FORMAT = pyaudio.paInt16
 
 
+async def all_media_ziched(db_path=DB_PATH):
+    time = datetime.now().strftime("%Y-%m-%d_%H-%M")
+    zip_file_path = os.path.join(current_path, f"voices_{time}.zip")
+      
+    for root, dirs, files in os.walk(MEDIA_PATH):
+        with zipfile.ZipFile(zip_file_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for file in files:
+                file_path = os.path.join(root, file)
+                # file_size = os.path.getsize(file_path)
+                zipf.write(file_path, os.path.relpath(file_path, MEDIA_PATH))
+                os.remove(file_path)
+    print("...all the ok...")
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM audios WHERE status = 'read';")
+    audios = cursor.fetchall()
+    
+    # delete all read audios
+    cursor.execute("DELETE FROM audios WHERE status = 'read';")
+    conn.commit()
+    conn.close()
+
+    new_db_path = os.path.join(current_path, f"voices_{time}.db")
+    conn = sqlite3.connect(new_db_path)
+    cursor = conn.cursor()
+
+    # Jadvalni yaratish
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS audios (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sentence_id VARCHAR,
+            sentence VARCHAR,
+            file_name VARCHAR,
+            status VARCHAR ,
+            time DATETIME
+        )
+    ''')
+
+    for audio in audios:
+        cursor.execute('''
+            INSERT INTO audios (sentence_id, sentence, file_name, status, time) VALUES (?, ?, ?, ?, ?)
+        ''', (audio[1], audio[2], audio[3], audio[4], audio[5]))
+
+    conn.commit()
+    conn.close()
+
+    print("Ma'lumotlar bazasi yaratildi va ma'lumotlar qo'shildi.")
+
 async def send_media(chat, thread_id):  
     # List of files to send
     file_list = []
@@ -94,10 +144,11 @@ async def backup_database(chat, thread_id):
     
    
 async def main():
-    await backup_database(Chat_ID, Message_ID)
-    await send_media(Chat_ID, Message_ID)
-    session = await bot.get_session()
-    await session.close()
+    # await backup_database(Chat_ID, Message_ID)
+    # await send_media(Chat_ID, Message_ID)
+    await all_media_ziched()
+    # session = await bot.get_session()
+    # await session.close()
     print("ok")
 
 
@@ -112,15 +163,15 @@ async def main():
 
  
 
-def update_audio_status(db_path, file_name, new_status):
+def update_audio_status(db_path, sentence_id, new_status, file_name=None):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     current_time = datetime.utcnow() + timedelta(hours=5)  # UTC+5
 
     # Jadvaldagi ma'lumotni yangilash
     cursor.execute('''
-        UPDATE audios SET status = ?, date = ? WHERE file_name = ?
-    ''', (new_status, current_time, file_name))
+        UPDATE audios SET status = ?, time = ?, file_name=? WHERE sentence_id = ?
+    ''', (new_status, current_time, file_name, sentence_id))
 
     conn.commit()
     conn.close()
@@ -136,22 +187,22 @@ def get_unread_audio(db_path):
 
     return audio
 
-def is_read_this_audio(db_path, file_name):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
+# def is_read_this_audio(db_path, file_name):
+#     conn = sqlite3.connect(db_path)
+#     cursor = conn.cursor()
 
-    cursor.execute(f"SELECT status FROM audios WHERE file_name = {file_name} LIMIT 1;")
-    audio = cursor.fetchone()
+#     cursor.execute(f"SELECT status FROM audios WHERE file_name = {file_name} LIMIT 1;")
+#     audio = cursor.fetchone()
 
-    conn.close()
+#     conn.close()
 
-    return 
+#     return 
 
-def delete_last_audio(db_path):
+def delete_last_audio(db_path, sentence_id):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     
-    cursor.execute("UPDATE audios SET status = 'unread' WHERE id = (SELECT id FROM audios WHERE status = 'read' ORDER BY date DESC LIMIT 1)")
+    cursor.execute("UPDATE audios SET status = 'unread' WHERE sentence_id = ?", (sentence_id,))
 
     
     conn.commit()
@@ -215,7 +266,7 @@ class VoiceRecorder:
         self.sentence.pack(expand=True, padx=10, pady=20, anchor='center', side='top')
 
     def create_send_audios_button(self):
-        self.send_audios_btn = tk.Button(self.recorder_time_frame, text="Send Audios", font=('Arial', 10, 'bold'),
+        self.send_audios_btn = tk.Button(self.recorder_time_frame, text="Compressed Audios", font=('Arial', 10, 'bold'),
                                          command=self.send_audios_func, cursor='hand2')
         self.send_audios_btn.pack(side='left', ipadx=10, ipady=10, anchor='center', padx=10, pady=50)
 
@@ -235,24 +286,30 @@ class VoiceRecorder:
         self.timer_label.pack(padx=10, pady=20, side='bottom', anchor='center')
 
     def create_play_button(self):
+        self.show_last_sentence = tk.Label(self.bottomframe, text="Last Sentence Text")
+        self.show_last_sentence.pack(fill='both', expand=True, padx=10, pady=10, side='top')
+
         self.audio_timer_label = tk.Label(self.bottomframe, text="Pleace record audio")
         self.audio_timer_label.pack(fill='both', expand=True, padx=10, pady=10, side='top')
 
    
-        self.play_button = tk.Button(self.bottomframe, text="Play Audio", command=self.play_audio)
-        self.play_button.pack(side='left', ipadx=10, ipady=10, anchor='center', padx=10)
+        self.play_button = tk.Button(self.bottomframe, text="Play Last Audio", command=self.play_audio)
+        self.play_button.pack(side='left', ipadx=10, ipady=10, anchor='center', padx=10, pady=20)
 
-        self.delete_audio_btn = tk.Button(self.bottomframe, text="Delete Audio", command=self.delete_audio)
-        self.delete_audio_btn.pack(side='left', ipadx=10, ipady=10, anchor='center', padx=10)
+        self.delete_audio_btn = tk.Button(self.bottomframe, text="Delete Last Audio", command=self.delete_audio)
+        self.delete_audio_btn.pack(side='left', ipadx=10, ipady=10, anchor='center', padx=10, pady=20)
         
-        self.send_one_audio_btn = tk.Button(self.bottomframe, text="It's Correct", command=self.correct_and_next_sentence)
-        self.send_one_audio_btn.pack(side='left', ipadx=10, ipady=10, anchor='center', padx=10)
+    
+        self.play_button.config(state=tk.DISABLED)
+        self.delete_audio_btn.config(state=tk.DISABLED)
+        # self.send_one_audio_btn = tk.Button(self.bottomframe, text="It's Correct", command=self.correct_and_next_sentence)
+        # self.send_one_audio_btn.pack(side='left', ipadx=10, ipady=10, anchor='center', padx=10)
      
         # checkbox for auto all save audio
         self.auto_save_audio = tk.IntVar()
         self.auto_save_audio.set(1)
         self.auto_save_audio_checkbox = tk.Checkbutton(self.bottomframe, text="Auto Next Sentence", variable=self.auto_save_audio)
-        self.auto_save_audio_checkbox.pack( ipadx=10, ipady=10, anchor='center', padx=10, pady=20)
+        # self.auto_save_audio_checkbox.pack( ipadx=10, ipady=10, anchor='center', padx=10, pady=20)
         
 
     def play_audio(self):
@@ -260,13 +317,15 @@ class VoiceRecorder:
         if audio_file:
             self.play_button.config(state=tk.DISABLED)
             self.delete_audio_btn.config(state=tk.DISABLED)
-            self.send_one_audio_btn.config(state=tk.DISABLED)
+            # self.send_one_audio_btn.config(state=tk.DISABLED)
             
             self.play_thread = threading.Thread(target=self.play_audio_thread, args=(audio_file,))
             self.play_thread.start()
         else:
             print("Audio file not found")
     
+            self.play_button.config(state=tk.DISABLED)
+            self.delete_audio_btn.config(state=tk.DISABLED)
     def play_audio_thread(self, audio_file):
         CHUNK = 1024
         wf = wave.open(audio_file, 'rb')
@@ -296,18 +355,20 @@ class VoiceRecorder:
         
         self.play_button.config(state=tk.NORMAL)
         self.delete_audio_btn.config(state=tk.NORMAL)
-        self.send_one_audio_btn.config(state=tk.NORMAL)
+        # self.send_one_audio_btn.config(state=tk.NORMAL)
         
     def delete_audio(self):
         
         self.play_button.config(state=tk.DISABLED)
         self.delete_audio_btn.config(state=tk.DISABLED)
-        self.send_one_audio_btn.config(state=tk.DISABLED)
+        # self.send_one_audio_btn.config(state=tk.DISABLED)
         
         if self.last_record:
-            delete_last_audio(self.db_path)
+            delete_last_audio(self.db_path, self.last_filename)
             os.remove(self.last_record)
             self.last_record = None
+            self.last_filename = None
+            self.show_last_sentence.config(text="")
             
             self.audio_timer_label.config(text="Audio deleted successfully")
         else:
@@ -343,22 +404,22 @@ class VoiceRecorder:
                 
             self.play_button.config(state=tk.NORMAL)
             self.delete_audio_btn.config(state=tk.NORMAL)
-            self.send_one_audio_btn.config(state=tk.NORMAL)
+            # self.send_one_audio_btn.config(state=tk.NORMAL)
             
             self.is_recording = False
             self.record_button.config(text="🎤 ", fg='black')
             self.audio_timer_label.config(text=self.timer_label.cget("text"))
             
-            if self.auto_save_audio.get():
-                self.next_sentence_func('read')
-            else:
-                update_audio_status(self.db_path, self.sentence_db[1], 'read')
+            # if self.auto_save_audio.get():
+            #     self.next_sentence_func('read')
+            # else:
+            #     update_audio_status(self.db_path, self.sentence_db[1], 'read')
                 
         else:
             
             self.play_button.config(state=tk.DISABLED)
             self.delete_audio_btn.config(state=tk.DISABLED)
-            self.send_one_audio_btn.config(state=tk.DISABLED)
+            # self.send_one_audio_btn.config(state=tk.DISABLED)
             
             
             self.is_recording = True
@@ -394,7 +455,7 @@ class VoiceRecorder:
         #     i += 1
         
         self.last_filename = self.sentence_db[1]
-        self.last_record = f'records/{self.last_filename}'
+        self.last_record = f'records/{self.last_filename}.wav'
             
         sound_file = wave.open(self.last_record, 'wb')
         sound_file.setnchannels(RECORD_CHANNELS)
@@ -403,14 +464,16 @@ class VoiceRecorder:
         sound_file.writeframes(b''.join(frames))
         sound_file.close()
         print(self.timer_label.cget("text"))
-        
+
+        self.show_last_sentence.config(text=self.sentence_db[2])
+        self.next_sentence_func(status='read')
         
         self.timer_label.config(text="Record Time:  00:00:00")
         
      
     
     def next_sentence_func(self, status='skip'):
-        update_audio_status(self.db_path, self.sentence_db[1], status)
+        update_audio_status(self.db_path, self.sentence_db[1], status, self.last_record)
         self.sentence_db = get_unread_audio(self.db_path)
         self.sentence.config(text=self.sentence_db[2])
     

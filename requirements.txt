@@ -1,0 +1,7 @@
+aiogram==3.5.0
+numpy==1.26.4
+PyAudio==0.2.14
+pydantic==2.7.1
+pydantic_core==2.18.2
+typing_extensions==4.11.0
+pandas~=2.2.2
