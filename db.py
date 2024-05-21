@@ -37,21 +37,7 @@ def create_table():
     conn.close()
     
     
-def insert_audio(file_name, sentence):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
 
-    # Vaqtzonani olish
-
-    # Jadvalga ma'lumot qo'shish
-    cursor.execute('''
-        INSERT INTO audios (file_name, sentence) VALUES (?, ?)
-    ''', (file_name, sentence))
-
-    conn.commit()
-    conn.close()
-    
-    
 
 def update_audio_status(file_name, new_status):
     conn = sqlite3.connect(db_path)
@@ -88,7 +74,7 @@ def get_all_read_audio():
     # delete all read audios
     cursor.execute("DELETE FROM audios WHERE status = 'read';")
     conn.commit()
-    
+
 
     conn.close()
 
