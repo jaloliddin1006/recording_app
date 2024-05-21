@@ -12,8 +12,8 @@ class BaseModel(models.Model):
 class Audio(BaseModel):
     sentence_id = models.CharField(max_length=255)
     sentence = models.TextField()
-    file_path = models.FileField(upload_to='records/')
-    status = models.CharField(max_length=10, default='unread')
+    file_path = models.FileField(upload_to='records/', null=True, blank=True)
+    status = models.CharField(max_length=10, default='read')
 
     def __str__(self):
         return self.sentence
