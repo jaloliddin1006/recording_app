@@ -61,7 +61,7 @@ async def all_media_ziched(db_path=DB_PATH):
     conn.commit()
     conn.close()
 
-    new_db_path = os.path.join(current_path, f"voices_{time}.db")
+    new_db_path = zip_file_path.replace('zip', 'db')
     conn = sqlite3.connect(new_db_path)
     cursor = conn.cursor()
 
