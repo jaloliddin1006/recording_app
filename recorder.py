@@ -404,6 +404,8 @@ class VoiceRecorder:
                 
             self.play_button.config(state=tk.NORMAL)
             self.delete_audio_btn.config(state=tk.NORMAL)
+            self.send_audios_btn.config(state=tk.NORMAL)
+            self.next_sentence_button.config(state=tk.NORMAL)
             # self.send_one_audio_btn.config(state=tk.NORMAL)
             
             self.is_recording = False
@@ -419,6 +421,8 @@ class VoiceRecorder:
             
             self.play_button.config(state=tk.DISABLED)
             self.delete_audio_btn.config(state=tk.DISABLED)
+            self.send_audios_btn.config(state=tk.DISABLED)
+            self.next_sentence_button.config(state=tk.DISABLED)
             # self.send_one_audio_btn.config(state=tk.DISABLED)
             
             
